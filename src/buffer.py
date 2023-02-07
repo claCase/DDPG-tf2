@@ -76,7 +76,7 @@ class PriorityBuffer(Buffer):
             b = batch_size
         if self.mem_cntr > 1:
             b = np.minimum(b, self.mem_cntr)
-            d = self.d - np.max(self.d)
+            d = self.td_errors - np.max(self.td_errors)
             #p = np.exp(d*self.alpha) / np.sum(np.exp(d * self.alpha))
             p = (d*self.alpha) / np.sum(d * self.alpha)
             idx = np.random.choice(p.shape[0]+1, p=p, size=b, replace=False)
