@@ -1,10 +1,11 @@
 import tensorflow as tf
-from .networks import Actor, Critic
-from .buffer import Buffer, PriorityBuffer
+from src.networks import Actor, Critic
+from src.buffer import Buffer, PriorityBuffer
 import os
 
-#Buffer, PriorityBuffer = buffer.Buffer, buffer.PriorityBuffer
-#Actor, Critic = networks.Actor, networks.Critic
+
+# Buffer, PriorityBuffer = buffer.Buffer, buffer.PriorityBuffer
+# Actor, Critic = networks.Actor, networks.Critic
 
 
 class DDPG(tf.keras.models.Model):
@@ -132,7 +133,8 @@ class DDPGPriority(DDPG):
                  tau=0.001,
                  gamma=0.99,
                  **kwargs):
-        super().__init__(units=units, activation=activation, optimizer=optimizer, tau=tau, gamma=gamma, **kwargs)
+        super().__init__(units=units, activation=activation, optimizer=optimizer, tau=tau, gamma=gamma,
+                                     **kwargs)
         self.buffer = PriorityBuffer(alpha, beta, state_shape=states, action_shape=actions, reward_shape=1,
                                      max_size=buffer_size, batch_size=batch_size)
 

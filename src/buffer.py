@@ -60,13 +60,14 @@ class PriorityBuffer(Buffer):
 
     def store_transition(self, s0, a, r, s1, d, td):
         self.mem_cntr = self.mem_cntr % self.max_size
-        self.s0[self.mem_cntr] = s0
-        self.s1[self.mem_cntr] = s1
-        self.a[self.mem_cntr] = a
-        self.r[self.mem_cntr] = r
-        self.d[self.mem_cntr] = d
-        self.td_errors[self.mem_cntr] = td
-        self.mem_cntr += 1
+        if td > np.quantile(self.td_errors, 0.1, axis=0):
+            self.s0[self.mem_cntr] = s0
+            self.s1[self.mem_cntr] = s1
+            self.a[self.mem_cntr] = a
+            self.r[self.mem_cntr] = r
+            self.d[self.mem_cntr] = d
+            self.td_errors[self.mem_cntr] = td
+            self.mem_cntr += 1
 
     def sample(self, batch_size=None):
         if batch_size is None:
@@ -75,12 +76,11 @@ class PriorityBuffer(Buffer):
             b = batch_size
         if self.mem_cntr > 1:
             b = np.minimum(b, self.mem_cntr)
-            td_sorted = np.squeeze(np.argsort(self.td_errors[:self.mem_cntr], axis=0)[::-1])
-            d = 1 / (np.arange(self.mem_cntr) + 1)
-            p = (d ** self.alpha) / (np.sum(d ** self.alpha))
-            idx = np.random.choice(td_sorted, p=p, size=b, replace=False)
-            w = 1 / (self.mem_cntr ** self.beta * p ** self.beta)
-            w = w.astype(np.float32)
+            d = self.d - np.max(self.d)
+            p = np.exp(d*self.alpha) / np.sum(np.exp(d * self.alpha))
+            idx = np.random.choice(p.shape[0]+1, p=p, size=b, replace=False)
+            w = np.pow(b*p[idx], self.beta)
+            w = w/np.max(w)
             return self.s0[idx], self.a[idx], self.r[idx], self.s1[idx], self.d[idx], w
         else:
             w = 1.0
