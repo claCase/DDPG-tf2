@@ -77,9 +77,10 @@ class PriorityBuffer(Buffer):
         if self.mem_cntr > 1:
             b = np.minimum(b, self.mem_cntr)
             d = self.d - np.max(self.d)
-            p = np.exp(d*self.alpha) / np.sum(np.exp(d * self.alpha))
+            #p = np.exp(d*self.alpha) / np.sum(np.exp(d * self.alpha))
+            p = (d*self.alpha) / np.sum(d * self.alpha)
             idx = np.random.choice(p.shape[0]+1, p=p, size=b, replace=False)
-            w = np.pow(b*p[idx], self.beta)
+            w = np.pow(b*p[idx], -self.beta)
             w = w/np.max(w)
             return self.s0[idx], self.a[idx], self.r[idx], self.s1[idx], self.d[idx], w
         else:
