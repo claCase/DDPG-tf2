@@ -2,10 +2,7 @@ import tensorflow as tf
 from src.networks import Actor, Critic
 from src.buffer import Buffer, PriorityBuffer
 import os
-
-
-# Buffer, PriorityBuffer = buffer.Buffer, buffer.PriorityBuffer
-# Actor, Critic = networks.Actor, networks.Critic
+import matplotlib.pyplot as plt
 
 
 class DDPG(tf.keras.models.Model):
@@ -15,7 +12,7 @@ class DDPG(tf.keras.models.Model):
                  units=(512, 512),
                  activation="relu",
                  optimizer="Adam",
-                 buffer_size=1e6,
+                 buffer_size=1e2,
                  batch_size=32,
                  tau=0.001,
                  gamma=0.99
@@ -55,7 +52,8 @@ class DDPG(tf.keras.models.Model):
         d = tf.convert_to_tensor(d)
 
         with tf.GradientTape() as tape:
-            critic_loss = tf.reduce_mean(self.compute_td(s0, a, r, s1, d) ** 2)
+            td_errors = self.compute_td(s0, a, r, s1, d)
+            critic_loss = self.critic_loss(td_errors)
         critic_grad = tape.gradient(critic_loss, self.critic.trainable_variables)
         self.critic.optimizer.apply_gradients(zip(critic_grad, self.critic.trainable_variables))
 
@@ -78,9 +76,8 @@ class DDPG(tf.keras.models.Model):
         td = target - q_current
         return td
 
-    def critic_loss(self, q_current, q_target, r, done):
-        td = self.td_error(q_current, q_target, r, done)
-        return tf.reduce_mean(td ** 2)
+    def critic_loss(self, td_errors):
+        return tf.reduce_mean(td_errors ** 2)
 
     @staticmethod
     def actor_loss(q_values):
@@ -123,34 +120,33 @@ class DDPG(tf.keras.models.Model):
 
 
 class DDPGPriority(DDPG):
-    def __init__(self, alpha, beta, states=3,
+    def __init__(self, alpha=0.5, beta=0.5, states=3,
                  actions=1,
                  units=(512, 512),
                  activation="relu",
                  optimizer="Adam",
-                 buffer_size=1e6,
+                 buffer_size=1e3,
                  batch_size=32,
                  tau=0.001,
                  gamma=0.99,
                  **kwargs):
         super().__init__(units=units, activation=activation, optimizer=optimizer, tau=tau, gamma=gamma,
-                                     **kwargs)
+                         **kwargs)
         self.buffer = PriorityBuffer(alpha, beta, state_shape=states, action_shape=actions, reward_shape=1,
                                      max_size=buffer_size, batch_size=batch_size)
 
     def train_step(self, data=None):
-        s0, a, r, s1, d, w = self.buffer.sample()
+        s0, a, r, s1, d, w, idx = self.buffer.sample()
         s0 = tf.convert_to_tensor(s0)
         a = tf.convert_to_tensor(a)
         r = tf.convert_to_tensor(r)
         s1 = tf.convert_to_tensor(s1)
         d = tf.convert_to_tensor(d)
         w = tf.convert_to_tensor(w)
+
         with tf.GradientTape() as tape:
-            q = self.critic([s0, a])
-            a_target = self.actor_target(s1)
-            q_target = self.critic_target([s1, a_target])
-            critic_loss = self.critic_loss(q, q_target, r, d, w)
+            td_errors = self.compute_td(s0, a, r, s1, d)
+            critic_loss = self.critic_loss(td_errors, w)
         critic_grad = tape.gradient(critic_loss, self.critic.trainable_variables)
         self.critic.optimizer.apply_gradients(zip(critic_grad, self.critic.trainable_variables))
 
@@ -160,13 +156,13 @@ class DDPGPriority(DDPG):
             actor_loss = self.actor_loss(q)
         actor_grad = tape.gradient(actor_loss, self.actor.trainable_variables)
         self.actor.optimizer.apply_gradients(zip(actor_grad, self.actor.trainable_variables))
+
+        self.buffer.update_priority(priorities=td_errors.numpy(), indices=idx)
         self.update_targets()
 
-    def critic_loss(self, q_current, q_target, r, done, w):
-        target = r + self.gamma * q_target * (1 - done)
-        return tf.reduce_mean(w * (target - q_current) ** 2)
+    def critic_loss(self, td_errors, w):
+        return tf.reduce_mean(w * td_errors ** 2)
 
     def store_transition(self, *args):
         args = [tf.cast(tf.expand_dims(arg, 0), tf.float32) for arg in args]
-        td = tf.squeeze(tf.abs(self.compute_td(*args)))
-        self.buffer.store_transition(*args, td.numpy())
+        self.buffer.store_transition(*args)

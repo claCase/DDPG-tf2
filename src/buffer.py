@@ -56,33 +56,35 @@ class PriorityBuffer(Buffer):
         super().__init__(*args, **kwargs)
         self.alpha = alpha
         self.beta = beta
-        self.td_errors = np.zeros(shape=(self.max_size, 1))
+        self.priorities = np.zeros(shape=(self.max_size, 1))
+        self.priorities[0] = 1.0
+        self.mem_cntr = 0
 
-    def store_transition(self, s0, a, r, s1, d, td):
+    def store_transition(self, s0, a, r, s1, d):
         self.mem_cntr = self.mem_cntr % self.max_size
-        if td > np.quantile(self.td_errors, 0.1, axis=0):
-            self.s0[self.mem_cntr] = s0
-            self.s1[self.mem_cntr] = s1
-            self.a[self.mem_cntr] = a
-            self.r[self.mem_cntr] = r
-            self.d[self.mem_cntr] = d
-            self.td_errors[self.mem_cntr] = td
-            self.mem_cntr += 1
+        self.s0[self.mem_cntr] = s0
+        self.s1[self.mem_cntr] = s1
+        self.a[self.mem_cntr] = a
+        self.r[self.mem_cntr] = r
+        self.d[self.mem_cntr] = d
+        if self.mem_cntr != 0:
+            self.priorities[self.mem_cntr] = np.max(self.priorities)
+        self.mem_cntr += 1
+
+    def update_priority(self, priorities, indices):
+        self.priorities[indices] = np.abs(priorities)
 
     def sample(self, batch_size=None):
         if batch_size is None:
             b = self.batch_size
         else:
             b = batch_size
-        if self.mem_cntr > 1:
-            b = np.minimum(b, self.mem_cntr)
-            d = self.td_errors - np.max(self.td_errors)
-            #p = np.exp(d*self.alpha) / np.sum(np.exp(d * self.alpha))
-            p = (d*self.alpha) / np.sum(d * self.alpha)
-            idx = np.random.choice(p.shape[0]+1, p=p, size=b, replace=False)
-            w = np.pow(b*p[idx], -self.beta)
-            w = w/np.max(w)
-            return self.s0[idx], self.a[idx], self.r[idx], self.s1[idx], self.d[idx], w
-        else:
-            w = 1.0
-            return self.s0[:1], self.a[:1], self.r[:1], self.s1[:1], self.d[:1], w
+        b = np.minimum(b, self.mem_cntr)
+        d = (self.priorities[:self.mem_cntr]) ** self.alpha
+        p = d / np.sum(d)
+        # print(p)
+        idx = np.random.choice(a=p.shape[0], p=p[:, 0], size=b, replace=True)
+        w = np.power(b * p[idx], -self.beta)
+        w = w / np.max(w)
+        w = w.astype(np.float32)
+        return self.s0[idx], self.a[idx], self.r[idx], self.s1[idx], self.d[idx], w, idx
