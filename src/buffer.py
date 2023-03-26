@@ -62,7 +62,6 @@ class PriorityBuffer(Buffer):
 
     def store_transition(self, s0, a, r, s1, d):
         super().store_transition(s0, a, r, s1, d)
-        self.mem_cntr = self.mem_cntr % self.max_size
         if self.mem_cntr - 1 != 0:
             self.priorities[self.mem_cntr - 1] = np.max(self.priorities)
 
