@@ -61,15 +61,18 @@ class PriorityBuffer(Buffer):
         self.mem_cntr = 0
 
     def store_transition(self, s0, a, r, s1, d):
+        super().store_transition(s0, a, r, s1, d)
         self.mem_cntr = self.mem_cntr % self.max_size
-        self.s0[self.mem_cntr] = s0
-        self.s1[self.mem_cntr] = s1
-        self.a[self.mem_cntr] = a
-        self.r[self.mem_cntr] = r
-        self.d[self.mem_cntr] = d
-        if self.mem_cntr != 0:
-            self.priorities[self.mem_cntr] = np.max(self.priorities)
-        self.mem_cntr += 1
+        if self.mem_cntr - 1 != 0:
+            self.priorities[self.mem_cntr - 1] = np.max(self.priorities)
+
+    def save(self, dir):
+        super().save(dir)
+        np.save(os.path.join(dir, "buffer", "priorities"), self.priorities)
+
+    def load(self, dir):
+        super().load(dir)
+        np.load(os.path.join(dir, "buffer", "priorities.npy"))
 
     def update_priority(self, priorities, indices):
         self.priorities[indices] = np.abs(priorities)
@@ -82,7 +85,6 @@ class PriorityBuffer(Buffer):
         b = np.minimum(b, self.mem_cntr)
         d = (self.priorities[:self.mem_cntr]) ** self.alpha
         p = d / np.sum(d)
-        # print(p)
         idx = np.random.choice(a=p.shape[0], p=p[:, 0], size=b, replace=True)
         w = np.power(b * p[idx], -self.beta)
         w = w / np.max(w)
