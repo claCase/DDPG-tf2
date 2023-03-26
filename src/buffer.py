@@ -71,7 +71,7 @@ class PriorityBuffer(Buffer):
 
     def load(self, dir):
         super().load(dir)
-        np.load(os.path.join(dir, "buffer", "priorities.npy"))
+        self.priorities = np.load(os.path.join(dir, "buffer", "priorities.npy"))
 
     def update_priority(self, priorities, indices):
         self.priorities[indices] = np.abs(priorities)
