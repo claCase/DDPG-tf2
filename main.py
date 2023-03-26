@@ -1,8 +1,9 @@
+import os
 import numpy as np
 import tensorflow as tf
 import gym
 import argparse
-from src import ddpg
+from src import ddpg as models
 
 if __name__ == "__main__":
     import matplotlib.pyplot as plt
@@ -16,6 +17,7 @@ if __name__ == "__main__":
     parser.add_argument("--render", action="store_true")
     parser.add_argument("--train", action="store_true")
     parser.add_argument("--priority", action="store_true")
+    parser.add_argument("--save", action="store_true")
     args = parser.parse_args()
     episodes = args.episodes
     transitions = args.transitions
@@ -25,13 +27,15 @@ if __name__ == "__main__":
     train = args.train
     render = args.render
     priority = args.priority
+    save = args.save
     print(f"Run Config:"
           f"\n episodes {episodes} "
           f"\n transitions {transitions} "
-          f"\n gpu {gpu} "
-          f"\n Train {train} "
+          f"\n gpu {gpu}"
+          f"\n Train {train}"
           f"\n Render {render}"
-          f"\n Priority {priority}")
+          f"\n Priority {priority}"
+          f"\n Save {save}")
     if priority:
         chkpt_dir = "./tmp/priority"
     else:
@@ -40,6 +44,7 @@ if __name__ == "__main__":
     env = gym.make("Pendulum-v1")
     action_shape = env.action_space.shape
     state_shape = env.observation_space.shape
+
     if gpu:
         physical_devices = tf.config.list_physical_devices('GPU')
         tf.config.experimental.set_memory_growth(physical_devices[0], True)
@@ -51,9 +56,17 @@ if __name__ == "__main__":
     current_state = tf.expand_dims(current_state, 0)
 
     if priority:
-        ddpg = ddpg.DDPGPriority(alpha=1, beta=0.5, states=state_shape[-1], actions=action_shape[-1])
+        ddpg = models.DDPGPriority(alpha=0.1,
+                                 beta=0.4,
+                                 states=state_shape[-1],
+                                 actions=action_shape[-1],
+                                 batch_size=60,
+                                 buffer_size=1e6)
     else:
-        ddpg = ddpg.DDPG(state_shape[-1], action_shape[-1])
+        ddpg = models.DDPG(state_shape[-1],
+                           action_shape[-1],
+                           batch_size=60,
+                           buffer_size=1e6)
     if load_checkpoint:
         ddpg.load_models(chkpt_dir)
         ddpg.load_buffer(chkpt_dir)
@@ -63,39 +76,43 @@ if __name__ == "__main__":
     ddpg.update_targets(1)  # copy weights to target networks
     best = env.reward_range[0]
     episodes_reward = []
-    average_episode_reward = []
+    rewards = []
+    i = 0
     for ep in range(episodes):
         current_state = env.reset()
         terminal = False
         episode_reward = []
-
         while not terminal:
             action, _ = ddpg(tf.convert_to_tensor(current_state[None, :]), exploration=train)
             action = action[0]
             next_state, reward, terminal, info = env.step(action)
             if train:
                 ddpg.store_transition(current_state, action, reward, next_state, terminal)
-                ddpg.train_step()
+                if i > transitions:
+                    ddpg.train_step()
             current_state = next_state
             episode_reward.append(reward)
             if render:
                 env.render()
 
             if terminal:
-                average_reward = tf.reduce_mean(episode_reward).numpy()
                 total_reward = tf.reduce_sum(episode_reward).numpy()
-                average_episode_reward.append(average_reward)
                 episodes_reward.append(total_reward)
-                print(f"Episode {ep} Reward {total_reward} AVG {np.mean(episodes_reward[-40:])}")
-                if best < average_episode_reward[-1]:
-                    best = average_episode_reward[-1]
-                    if train:
+                print(f"Episode {ep} Reward {total_reward} AVG {np.mean(episodes_reward[-10:])}")
+                if best < episodes_reward[-1]:
+                    best = episodes_reward[-1]
+                    if save:
                         print("Saving model...")
                         ddpg.save_models(chkpt_dir)
                         ddpg.save_buffer(chkpt_dir)
+            i += 1
+
+    np.save(os.path.join(chkpt_dir, "episodes_reward.npy"), episodes_reward)
 
     fig, ax = plt.subplots()
-    sec = ax.twinx()
-    ax.plot(episodes_reward, color="blue")
-    sec.plot(average_episode_reward, color="green")
+    ax.plot(episodes_reward)
+    ax.set_title("Episodes Reward")
+    ax.set_xlabel("Episodes")
+    ax.set_ylabel("Reward")
+    plt.savefig(os.path.join(chkpt_dir, "episodes_reward.png"))
     plt.show()
